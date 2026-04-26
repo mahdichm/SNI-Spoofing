@@ -5,6 +5,7 @@ import sys
 import traceback
 import threading
 import json
+import platform
 
 # from utils.proxy_protocols import parse_vless_protocol
 from utils.network_tools import get_default_interface_ipv4
@@ -20,6 +21,33 @@ def get_exe_dir():
     else:
         # Running as a normal Python script
         return os.path.dirname(os.path.abspath(__file__))
+
+
+def set_tcp_keepalive(sock: socket.socket, idle: int = 11, interval: int = 2, count: int = 3):
+    """
+    Set TCP keep-alive options. Handles platform-specific socket options.
+    
+    Args:
+        sock: Socket to configure
+        idle: Idle time before sending keepalive (seconds)
+        interval: Interval between keepalive probes (seconds)
+        count: Number of keepalive probes before closing
+    """
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        
+        # TCP_KEEPIDLE, TCP_KEEPINTVL, TCP_KEEPCNT are not available on Windows Server 2012
+        # Only set them if they exist
+        if hasattr(socket, 'TCP_KEEPIDLE'):
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, idle)
+        if hasattr(socket, 'TCP_KEEPINTVL'):
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, interval)
+        if hasattr(socket, 'TCP_KEEPCNT'):
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, count)
+    except (OSError, AttributeError) as e:
+        # Silently ignore if these options are not supported
+        # The basic SO_KEEPALIVE is the most important one
+        pass
 
 
 # Build the path to config.json
@@ -130,10 +158,7 @@ async def handle(incoming_sock: socket.socket, incoming_remote_addr):
         outgoing_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         outgoing_sock.setblocking(False)
         outgoing_sock.bind((INTERFACE_IPV4, 0))
-        outgoing_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-        outgoing_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 11)
-        outgoing_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 2)
-        outgoing_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+        set_tcp_keepalive(outgoing_sock, idle=11, interval=2, count=3)
         src_port = outgoing_sock.getsockname()[1]
         fake_injective_conn = FakeInjectiveConnection(outgoing_sock, INTERFACE_IPV4, CONNECT_IP, src_port, CONNECT_PORT,
                                                       fake_data,
@@ -199,29 +224,23 @@ async def main():
     mother_sock.setblocking(False)
     mother_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     mother_sock.bind((LISTEN_HOST, LISTEN_PORT))
-    mother_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-    mother_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 11)
-    mother_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 2)
-    mother_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+    set_tcp_keepalive(mother_sock, idle=11, interval=2, count=3)
     mother_sock.listen()
     loop = asyncio.get_running_loop()
     while True:
         incoming_sock, addr = await loop.sock_accept(mother_sock)
         incoming_sock.setblocking(False)
-        incoming_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-        incoming_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 11)
-        incoming_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 2)
-        incoming_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+        set_tcp_keepalive(incoming_sock, idle=11, interval=2, count=3)
         asyncio.create_task(handle(incoming_sock, addr))
 
 
 if __name__ == "__main__":
-    w_filter = "tcp and " + "(" + "(ip.SrcAddr == " + INTERFACE_IPV4 + " and ip.DstAddr == " + CONNECT_IP + ")" + " or " + "(ip.SrcAddr == " + CONNECT_IP + " and ip.DstAddr == " + INTERFACE_IPV4 + ")" + ")"
+    w_filter = "tcp and " + "(" + "(ip.SrcAddr == " + INTERFACE_IPV4 + " and ip.DstAddr == " + CONNECT_IP + ")" + " or " + "(ip.SrcAddr == " + CONNECT_IP + " and ip.DstAddr == " + INTERFACE_IPV4 [...]
     fake_tcp_injector = FakeTcpInjector(w_filter, fake_injective_connections)
     threading.Thread(target=fake_tcp_injector.run, args=(), daemon=True).start()
     print("هشن شومافر تیامح دینکیم هدافتسا دازآ تنرتنیا هب یسرتسد یارب همانرب نیا زا رگا")
     print(
-        "دراد امش تیامح هب زاین هک مراد رظن رد دازآ تنرتنیا هب ناریا مدرم مامت یسرتسد یارب یدایز یاه همانرب و اه هژورپ")
+        "دراد امش تیامح هب زاین هک مراد رظن رد دازآ تنرتنیا هب ناریا مدرم مامت یسرتسد یارب یدایز یاه همانرب و اه [...]
     print("\n")
     print("USDT (BEP20): 0x76a768B53Ca77B43086946315f0BDF21156bF424\n")
     print("@patterniha")
